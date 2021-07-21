@@ -640,6 +640,7 @@ fn _start(argc: isize, _argv: *const *const u8) -> isize {
     {
         lazy_static::initialize(&atopology::MACHINE_TOPOLOGY);
         info!("Topology parsed");
+        atopology::process_nfit();
         trace!("{:#?}", *atopology::MACHINE_TOPOLOGY);
         let nodes = atopology::MACHINE_TOPOLOGY.num_nodes();
         let cores = atopology::MACHINE_TOPOLOGY.num_threads();

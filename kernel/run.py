@@ -381,7 +381,7 @@ def run_qemu(args):
                               "{},sockets=1".format(args.qemu_cores)]
 
     if args.qemu_memory:
-        qemu_default_args += ['-m', str(args.qemu_memory)]
+        qemu_default_args += ['-m', str(args.qemu_memory) + ',slots=2,maxmem=128G']
     if args.pvrdma:
         # ip link add bridge1 type bridge ; ifconfig bridge1 up
         qemu_default_args += ['-netdev', 'bridge,id=bridge1',
@@ -397,6 +397,11 @@ def run_qemu(args):
     # Name threads on host for `qemu_affinity.py` to find it
     qemu_default_args += ['-name', 'nrk,debug-threads=on']
 
+    # NVDIMM related arguments
+    qemu_default_args += ['-M', 'nvdimm=on']
+    qemu_default_args += ['-object', 'memory-backend-file,id=mem1,share=on,mem-path=/dev/pmem0,size=4G']
+    qemu_default_args += ['-device', 'nvdimm,id=nvdimm1,memdev=mem1']
+
     qemu_args = ['qemu-system-x86_64'] + qemu_default_args.copy()
     if args.qemu_settings:
         qemu_args += args.qemu_settings.split()
@@ -411,7 +416,7 @@ def run_qemu(args):
     sudo[ifconfig[QEMU_TAP_NAME, QEMU_TAP_ZONE]]()
 
     # Run a QEMU instance
-    cmd = ['/usr/bin/env'] + qemu_args
+    cmd = ['sudo'] + ['/usr/bin/env'] + qemu_args
     if args.verbose:
         print(' '.join(cmd))
 
