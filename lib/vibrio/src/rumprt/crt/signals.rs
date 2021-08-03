@@ -59,9 +59,10 @@ pub unsafe extern "C" fn _sys___sigprocmask14(
     _set: *const SigSet,
     oset: *mut SigSet,
 ) -> c_int {
-    if !oset.is_null() {
-        *oset = Default::default();
-    }
+    // FIXME(shpark): Whatever ;)
+    // if !oset.is_null() {
+    //     *oset = Default::default();
+    // }
     0
 }
 
