@@ -108,6 +108,8 @@ parser.add_argument("-d", "--qemu-debug-cpu", action="store_true",
                     help="Debug CPU reset (for qemu)")
 parser.add_argument('--nic', default='e1000', choices=["e1000", "virtio", "vmxnet3"],
                     help='What NIC model to use for emulation', required=False)
+parser.add_argument('--sev', action='store_true', default=False,
+                    help='Enable SEV?', required=False)
 
 # Baremetal argument
 parser.add_argument('--configure-ipxe', action="store_true", default=False,
@@ -335,6 +337,12 @@ def run_qemu(args):
 
     # qemu_default_args += ['-net', 'none']
 
+    if args.sev:
+        qemu_default_args += ['-object',
+                'sev-guest,id=sev0,policy=0,cbitpos=47,reduced-phys-bits=1']
+        qemu_default_args += ['-machine',
+                'memory-encryption=sev0,vmport=off']
+
     def numa_nodes_to_list(file):
         nodes = []
         good_nodes = cat[file]().split(',')
@@ -397,7 +405,9 @@ def run_qemu(args):
     # Name threads on host for `qemu_affinity.py` to find it
     qemu_default_args += ['-name', 'nrk,debug-threads=on']
 
-    qemu_args = ['qemu-system-x86_64'] + qemu_default_args.copy()
+    # NOTE: KVM_MEMORY_ENCRYPT_REG_REGION ioctl fails (-ENOMEM) if it is not
+    # running as a root.
+    qemu_args = ['sudo', 'qemu-system-x86_64'] + qemu_default_args.copy()
     if args.qemu_settings:
         qemu_args += args.qemu_settings.split()
 
