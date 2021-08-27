@@ -4,6 +4,7 @@
 //! API to construct a virtual address space for the loaded kernel image.
 use core::fmt;
 use core::mem::transmute;
+use core::sync::atomic::Ordering;
 
 use uefi::table::boot::AllocateType;
 use uefi::ResultExt;
@@ -12,6 +13,8 @@ use uefi_services::system_table;
 
 use x86::bits64::paging::*;
 
+use crate::CBITPOS;
+use crate::SEV_ENABLED;
 use crate::kernel::*;
 
 /// Mapping rights to give to address translation.
@@ -153,6 +156,9 @@ impl<'a> VSpace<'a> {
         assert_eq!(vbase % BASE_PAGE_SIZE, 0);
         assert_ne!(rights, MapAction::None, "TODO: Should we allow that?");
 
+        let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        let enc_mask: u64 = (sev_enabled as u64) << CBITPOS;
+
         debug!(
             "map_generic {:#x} -- {:#x} -> {:#x} -- {:#x} {}",
             vbase,
@@ -195,6 +201,8 @@ impl<'a> VSpace<'a> {
                         pbase + mapped,
                         PDPTFlags::P | PDPTFlags::PS | rights.to_pdpt_rights(),
                     );
+                    pdpt[pdpt_idx].0 |= enc_mask;
+
                     trace!(
                         "Mapped 1GiB range {:#x} -- {:#x} -> {:#x} -- {:#x}",
                         vbase + mapped,
@@ -242,6 +250,7 @@ impl<'a> VSpace<'a> {
             !pdpt[pdpt_idx].is_page(),
             "An existing mapping already covers the 1 GiB range we're trying to map in?"
         );
+        pdpt[pdpt_idx].0 |= enc_mask;
 
         let pd = self.get_pd(pdpt[pdpt_idx]);
         let mut pd_idx = pd_index(vbase);
@@ -263,6 +272,7 @@ impl<'a> VSpace<'a> {
                         pbase + mapped,
                         PDFlags::P | PDFlags::PS | rights.to_pd_rights(),
                     );
+                    pd[pd_idx].0 |= enc_mask;
                     trace!(
                         "Mapped 2 MiB region {:#x} -- {:#x} -> {:#x} -- {:#x}",
                         vbase + mapped,
@@ -310,6 +320,7 @@ impl<'a> VSpace<'a> {
             !pd[pd_idx].is_page(),
             "An existing mapping already covers the 2 MiB range we're trying to map in?"
         );
+        pd[pd_idx].0 |= enc_mask;
 
         let pt = self.get_pt(pd[pd_idx]);
         let mut pt_idx = pt_index(vbase);
@@ -318,6 +329,7 @@ impl<'a> VSpace<'a> {
         while mapped < psize && pt_idx < 512 {
             if !pt[pt_idx].is_present() {
                 pt[pt_idx] = PTEntry::new(pbase + mapped, PTFlags::P | rights.to_pt_rights());
+                pt[pt_idx].0 |= enc_mask;
                 trace!("installed 4 KiB mapping: {:?}", pt[pt_idx]);
             } else {
                 let vaddr_pos: usize = GIB_512 * pml4_idx

@@ -53,6 +53,7 @@ extern crate x86;
 
 use core::mem::transmute;
 use core::{mem, slice};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use uefi::prelude::*;
 use uefi::proto::console::gop::GraphicsOutput;
@@ -96,6 +97,9 @@ fn check_revision(rev: uefi::table::Revision) {
     let (major, minor) = (rev.major(), rev.minor());
     assert!(major >= 2 && minor >= 30, "Require UEFI version >= 2.30");
 }
+
+static SEV_ENABLED: AtomicBool = AtomicBool::new(false);
+const CBITPOS: usize = 47; // TODO: C-bit can have different values.
 
 /// Allocates `pages` * `BASE_PAGE_SIZE` bytes of physical memory
 /// and return the address.
@@ -397,6 +401,16 @@ pub extern "C" fn uefi_start(handle: uefi::Handle, st: SystemTable<Boot>) -> Sta
     let stack_size: usize = (stack_pages - 1) * BASE_PAGE_SIZE;
     let stack_top: PAddr = stack_base + stack_size as u64;
     assert_eq!(stack_protector + BASE_PAGE_SIZE, stack_base);
+
+    // HACK: Detect SEV by looking up the C-bit in the first PML4 entry
+    // that is used by UEFI.
+    // let pml4: PAddr = unsafe { controlregs::cr3() };
+    let pml4 = PAddr::from(unsafe { controlregs::cr3() });
+    let pml4Table = unsafe { transmute::<VAddr, &PML4>(paddr_to_uefi_vaddr(pml4)) };
+    let cbit = (pml4Table[0].0 & (1 << CBITPOS)) >> CBITPOS;
+    if cbit != 0 {
+        SEV_ENABLED.store(true, Ordering::Release); // XXX: Does it have to be atomic?
+    }
 
     kernel.vspace.map_identity_with_offset(
         PAddr::from(KERNEL_OFFSET as u64),
