@@ -39,3 +39,6 @@ rls*.log
 
 # Random notes
 *NOTES*
+
+# OVMF
+**/OVMF_*.fd
