@@ -15,7 +15,11 @@ use x86::bits64::paging::*;
 
 use crate::CBITPOS;
 use crate::SEV_ENABLED;
+use crate::MEM_ENCRYPT_MASK;
 use crate::kernel::*;
+
+/// Mask to find the physical address of an entry in a page-table (from x86 crate).
+const ADDRESS_MASK: u64 = ((1 << MAXPHYADDR) - 1) & !0xfff;
 
 /// Mapping rights to give to address translation.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
@@ -482,17 +486,20 @@ impl<'a> VSpace<'a> {
 
     /// Resolve a PDEntry to a page table.
     fn get_pt<'b>(&self, entry: PDEntry) -> &'b mut PT {
-        unsafe { transmute::<VAddr, &mut PT>(paddr_to_uefi_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PT>(paddr_to_uefi_vaddr(paddr)) }
     }
 
     /// Resolve a PDPTEntry to a page directory.
     fn get_pd<'b>(&self, entry: PDPTEntry) -> &'b mut PD {
-        unsafe { transmute::<VAddr, &mut PD>(paddr_to_uefi_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PD>(paddr_to_uefi_vaddr(paddr)) }
     }
 
     /// Resolve a PML4Entry to a PDPT.
     fn get_pdpt<'b>(&self, entry: PML4Entry) -> &'b mut PDPT {
-        unsafe { transmute::<VAddr, &mut PDPT>(paddr_to_uefi_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PDPT>(paddr_to_uefi_vaddr(paddr)) }
     }
 
     pub(crate) fn resolve_addr(&self, addr: VAddr) -> Option<PAddr> {
