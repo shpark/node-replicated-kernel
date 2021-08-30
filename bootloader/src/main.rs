@@ -100,6 +100,7 @@ fn check_revision(rev: uefi::table::Revision) {
 
 static SEV_ENABLED: AtomicBool = AtomicBool::new(false);
 const CBITPOS: usize = 47; // TODO: C-bit can have different values.
+const MEM_ENCRYPT_MASK: u64 = !(1 << CBITPOS);
 
 /// Allocates `pages` * `BASE_PAGE_SIZE` bytes of physical memory
 /// and return the address.

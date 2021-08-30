@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
 //! Implements the necessary functionality to load the ELF image in machine memory.
+use crate::SEV_ENABLED;
+use crate::MEM_ENCRYPT_MASK;
 use crate::alloc::vec::Vec;
 
 use elfloader::{self, ElfLoaderErr};
@@ -189,7 +191,10 @@ impl<'a> elfloader::ElfLoader for Kernel<'a> {
                 // just memcopy this stuff into.
                 // Best way would probably mean to map replicate the kernel mappings
                 // in UEFI space if this ever becomes a problem.
-                let ptr = paddr.unwrap().as_u64() as *mut u8;
+                //
+                // TODO(sev): Take MEM_ENCRYPT_MASK only when necessary.
+                let paddr = paddr.unwrap().as_u64() & MEM_ENCRYPT_MASK;
+                let ptr = paddr as *mut u8;
                 unsafe {
                     *ptr = *val;
                 }
