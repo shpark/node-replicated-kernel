@@ -176,6 +176,7 @@ impl<'a> VSpace<'a> {
         if !self.pml4[pml4_idx].is_present() {
             trace!("New PDPDT for {:?} @ PML4[{}]", vbase, pml4_idx);
             self.pml4[pml4_idx] = self.new_pdpt();
+            self.pml4[pml4_idx].0 |= enc_mask;
         }
         assert!(
             self.pml4[pml4_idx].is_present(),

@@ -475,6 +475,10 @@ fn identify_numa_affinity(
     );
 }
 
+pub(crate) static SEV_ENABLED: AtomicBool = AtomicBool::new(false);
+pub(crate) const CBITPOS: usize = 47; // TODO: C-bit can have different values.
+pub(crate) const MEM_ENCRYPT_MASK: u64 = !(1 << CBITPOS);
+
 /// Entry function that is called from UEFI
 /// At this point we are in x86-64 (long) mode,
 /// We have a simple GDT, our address space, and stack set-up.
@@ -488,6 +492,19 @@ fn _start(argc: isize, _argv: *const *const u8) -> isize {
     use crate::memory::LARGE_PAGE_SIZE;
     use core::slice;
     use uefi::table::boot::MemoryType;
+
+    // HACK: Detect SEV by looking up the C-bit in the first PML4 entry
+    // that is used by UEFI.
+    // let pml4: PAddr = unsafe { controlregs::cr3() };
+    //
+    // NOTE: The kernel VA starts from 1 << 46, of which corresponding PML4 index
+    // is 128.
+    let pml4 = PAddr::from(unsafe { controlregs::cr3() } & MEM_ENCRYPT_MASK);
+    let pml4_table = unsafe { transmute::<VAddr, &PML4>(paddr_to_kernel_vaddr(pml4)) };
+    let cbit = (pml4_table[128].0 & (1 << CBITPOS)) >> CBITPOS;
+    if cbit != 0 {
+        SEV_ENABLED.store(true, Ordering::Release); // XXX: Does it have to be atomic?
+    }
 
     sprint!("\r\n");
     enable_sse();
@@ -515,6 +532,8 @@ fn _start(argc: isize, _argv: *const *const u8) -> isize {
         *rawtime::WALL_TIME_ANCHOR,
         *rawtime::BOOT_TIME_ANCHOR
     );
+
+    info!("AMD SEV enabled? {:?}", SEV_ENABLED.load(Ordering::Relaxed));
 
     // At this point we should be able to handle exceptions:
     #[cfg(feature = "test-pfault-early")]

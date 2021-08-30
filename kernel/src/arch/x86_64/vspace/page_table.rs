@@ -6,6 +6,7 @@ use core::alloc::Layout;
 use core::mem::transmute;
 use core::pin::Pin;
 use core::ptr::NonNull;
+use core::sync::atomic::Ordering;
 
 use kpi::KERNEL_BASE;
 use log::{debug, trace};
@@ -15,6 +16,10 @@ use crate::error::KError;
 use crate::memory::detmem::DA;
 use crate::memory::vspace::*;
 use crate::memory::{kernel_vaddr_to_paddr, paddr_to_kernel_vaddr, Frame, PAddr, VAddr};
+use crate::arch::{CBITPOS, MEM_ENCRYPT_MASK, SEV_ENABLED};
+
+/// Mask to find the physical address of an entry in a page-table (from x86 crate).
+const ADDRESS_MASK: u64 = ((1 << MAXPHYADDR) - 1) & !0xfff;
 
 /// Describes a potential modification operation on existing page tables.
 const PT_LAYOUT: Layout =
@@ -41,12 +46,17 @@ impl Drop for PageTable {
     fn drop(&mut self) {
         use alloc::alloc::dealloc;
 
+        let pml4_table = unsafe {
+            let vaddr = VAddr::from(transmute::<&PML4, VAddr>(&self.pml4).0 & MEM_ENCRYPT_MASK);
+            transmute::<VAddr, &PML4>(vaddr)
+        };
+
         // Do a DFS and free all page-table memory allocated below kernel-base,
         // don't free the mapped frames -- we return them later through NR
         for pml4_idx in 0..PAGE_SIZE_ENTRIES {
-            if pml4_idx < pml4_index(KERNEL_BASE.into()) && self.pml4[pml4_idx].is_present() {
+            if pml4_idx < pml4_index(KERNEL_BASE.into()) && pml4_table[pml4_idx].is_present() {
                 for pdpt_idx in 0..PAGE_SIZE_ENTRIES {
-                    let pdpt = self.get_pdpt(self.pml4[pml4_idx]);
+                    let pdpt = self.get_pdpt(pml4_table[pml4_idx]);
                     if pdpt[pdpt_idx].is_present() {
                         if !pdpt[pdpt_idx].is_page() {
                             for pd_idx in 0..PAGE_SIZE_ENTRIES {
@@ -58,7 +68,7 @@ impl Drop for PageTable {
                                             if pt[pt_idx].is_present() {}
                                         }
                                         // Free this PT (page-table)
-                                        let addr = pd[pd_idx].address();
+                                        let addr = PAddr::from(pd[pd_idx].0 & ADDRESS_MASK &  MEM_ENCRYPT_MASK);
                                         let vaddr = paddr_to_kernel_vaddr(addr);
                                         unsafe { dealloc(vaddr.as_mut_ptr(), PT_LAYOUT) };
                                     }
@@ -67,7 +77,7 @@ impl Drop for PageTable {
                                 }
                             }
                             // Free this PDPT entry (PD page-table)
-                            let addr = pdpt[pdpt_idx].address();
+                            let addr = PAddr::from(pdpt[pdpt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                             let vaddr = paddr_to_kernel_vaddr(addr);
                             unsafe { dealloc(vaddr.as_mut_ptr(), PT_LAYOUT) };
                         } else {
@@ -77,7 +87,7 @@ impl Drop for PageTable {
                 }
 
                 // Free this PML4 entry (PDPT page-table)
-                let addr = self.pml4[pml4_idx].address();
+                let addr = PAddr::from(self.pml4[pml4_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                 let vaddr = paddr_to_kernel_vaddr(addr);
                 unsafe { dealloc(vaddr.as_mut_ptr(), PT_LAYOUT) };
                 self.pml4[pml4_idx] = PML4Entry(0x0);
@@ -120,14 +130,19 @@ impl AddressSpace for PageTable {
 
     fn resolve(&self, addr: VAddr) -> Result<(PAddr, MapAction), KError> {
         let pml4_idx = pml4_index(addr);
-        if self.pml4[pml4_idx].is_present() {
+        let pml4_table = unsafe {
+            let vaddr = VAddr::from(transmute::<&PML4, VAddr>(&self.pml4).0 & MEM_ENCRYPT_MASK);
+            transmute::<VAddr, &PML4>(vaddr)
+        };
+
+        if pml4_table[pml4_idx].is_present() {
             let pdpt_idx = pdpt_index(addr);
-            let pdpt = self.get_pdpt(self.pml4[pml4_idx]);
+            let pdpt = self.get_pdpt(pml4_table[pml4_idx]);
             if pdpt[pdpt_idx].is_present() {
                 if pdpt[pdpt_idx].is_page() {
                     // Page is a 1 GiB mapping, we have to return here
                     let page_offset = addr.huge_page_offset();
-                    let paddr = pdpt[pdpt_idx].address() + page_offset;
+                    let paddr = PAddr::from(pdpt[pdpt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK + page_offset);
                     let flags: MapAction = pdpt[pdpt_idx].flags().into();
                     return Ok((paddr, flags));
                 } else {
@@ -137,7 +152,7 @@ impl AddressSpace for PageTable {
                         if pd[pd_idx].is_page() {
                             // Encountered a 2 MiB mapping, we have to return here
                             let page_offset = addr.large_page_offset();
-                            let paddr = pd[pd_idx].address() + page_offset;
+                            let paddr = PAddr::from(pd[pd_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK + page_offset);
                             let flags: MapAction = pd[pd_idx].flags().into();
                             return Ok((paddr, flags));
                         } else {
@@ -145,7 +160,7 @@ impl AddressSpace for PageTable {
                             let pt = self.get_pt(pd[pd_idx]);
                             if pt[pt_idx].is_present() {
                                 let page_offset = addr.base_page_offset();
-                                let paddr = pt[pt_idx].address() + page_offset;
+                                let paddr = PAddr::from(pt[pt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK + page_offset);
                                 let flags: MapAction = pt[pt_idx].flags().into();
                                 return Ok((paddr, flags));
                             }
@@ -185,7 +200,7 @@ impl PageTable {
     }
 
     pub fn pml4_address(&self) -> PAddr {
-        let pml4_vaddr = VAddr::from(&*self.pml4 as *const _ as u64);
+        let pml4_vaddr = VAddr::from(&*self.pml4 as *const _ as u64 & MEM_ENCRYPT_MASK);
         kernel_vaddr_to_paddr(pml4_vaddr)
     }
 
@@ -231,16 +246,23 @@ impl PageTable {
     /// Allocates the PDPT page if it doesn't exist yet.
     fn get_or_alloc_pdpt(&mut self, vbase: VAddr) -> &mut PDPT {
         let pml4_idx = pml4_index(vbase);
-        if !self.pml4[pml4_idx].is_present() {
+        let mut pml4_table = unsafe {
+            let vaddr = VAddr::from(transmute::<&PML4, VAddr>(&self.pml4).0 & MEM_ENCRYPT_MASK);
+            transmute::<VAddr, &mut PML4>(vaddr)
+        };
+        if !pml4_table[pml4_idx].is_present() {
             trace!("Need new PDPDT for {:?} @ PML4[{}]", vbase, pml4_idx);
-            self.pml4[pml4_idx] = self.new_pdpt();
+            pml4_table[pml4_idx] = self.new_pdpt();
+            if SEV_ENABLED.load(Ordering::Relaxed) {
+                pml4_table[pml4_idx].0 |= 1 << CBITPOS;
+            }
         }
         assert!(
-            self.pml4[pml4_idx].is_present(),
+            pml4_table[pml4_idx].is_present(),
             "The PML4 slot we need was not allocated?"
         );
 
-        self.get_pdpt_mut(self.pml4[pml4_idx])
+        self.get_pdpt_mut(pml4_table[pml4_idx])
     }
 
     /// Check if we can just insert a huge page for the current mapping
@@ -252,6 +274,9 @@ impl PageTable {
         vbase: VAddr,
         _rights: MapAction,
     ) -> bool {
+        let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        let enc_mask = (sev_enabled as u64) << CBITPOS;
+
         let pml4_idx = pml4_index(vbase);
         let pdpt_idx = pdpt_index(vbase);
         let pdpt_entry = {
@@ -288,6 +313,7 @@ impl PageTable {
                 // warn!("TODO: pager.release_base_page()");
                 let pdpt = self.get_pdpt_mut(pml4_entry);
                 pdpt[pdpt_idx] = PDPTEntry::new(PAddr::from(0x0), PDPTFlags::empty());
+                pdpt[pdpt_idx].0 |= enc_mask;
             }
 
             all_entries_empty
@@ -305,6 +331,9 @@ impl PageTable {
         vbase: VAddr,
         _rights: MapAction,
     ) -> bool {
+        let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        let enc_mask = (sev_enabled as u64) << CBITPOS;
+
         let pml4_idx = pml4_index(vbase);
         let pdpt_idx = pdpt_index(vbase);
         let pd_idx = pd_index(vbase);
@@ -342,6 +371,7 @@ impl PageTable {
                 //warn!("TODO: pager.release_base_page()");
                 let pd = self.get_pd_mut(pdpt_entry);
                 pd[pd_idx] = PDEntry::new(PAddr::from(0x0), PDFlags::empty());
+                pd[pd_idx].0 |= enc_mask;
             }
             all_entries_empty
         };
@@ -359,6 +389,9 @@ impl PageTable {
         rights: MapAction,
         insert_mapping: bool,
     ) -> Result<(), KError> {
+        let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        let enc_mask = (sev_enabled as u64) << CBITPOS;
+
         let pdpt = self.get_or_alloc_pdpt(vbase);
 
         // To track how much space we've mapped so far
@@ -370,7 +403,7 @@ impl PageTable {
             if !insert_mapping {
                 // Check if we could map in theory (no overlap)
                 if pdpt[pdpt_idx].is_present() {
-                    let address = pdpt[pdpt_idx].address();
+                    let address = PAddr::from(pdpt[pdpt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                     let cur_rights: MapAction = pdpt[pdpt_idx].flags().into();
                     if address != pbase + mapped || cur_rights != rights {
                         // Return an error if a frame is present,
@@ -383,7 +416,7 @@ impl PageTable {
                 }
             } else {
                 if pdpt[pdpt_idx].is_present() {
-                    let address = pdpt[pdpt_idx].address();
+                    let address = PAddr::from(pdpt[pdpt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                     let cur_rights: MapAction = pdpt[pdpt_idx].flags().into();
                     if address != pbase + mapped || cur_rights != rights {
                         panic!("Trying to map 1 GiB page but it conflicts with existing mapping");
@@ -395,6 +428,7 @@ impl PageTable {
                     pbase + mapped,
                     PDPTFlags::P | PDPTFlags::PS | rights.to_pdpt_rights(),
                 );
+                pdpt[pdpt_idx].0 |= enc_mask;
 
                 trace!(
                     "Mapped 1GiB range {:#x} -- {:#x} -> {:#x} -- {:#x}",
@@ -443,6 +477,9 @@ impl PageTable {
         rights: MapAction,
         insert_mapping: bool,
     ) -> Result<(), KError> {
+        let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        let enc_mask = (sev_enabled as u64) << CBITPOS;
+
         let mut pd_idx = pd_index(vbase);
         let pd = self.get_pd_mut(pdpt_entry);
 
@@ -455,7 +492,7 @@ impl PageTable {
             if !insert_mapping {
                 // Check if we could map in theory (no overlap)
                 if pd[pd_idx].is_present() {
-                    let address = pd[pd_idx].address();
+                    let address = PAddr::from(pd[pd_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                     let cur_rights: MapAction = pd[pd_idx].flags().into();
                     if address != pbase + mapped || cur_rights != rights {
                         // Return an error if a frame is present,
@@ -468,7 +505,7 @@ impl PageTable {
                 }
             } else {
                 if pd[pd_idx].is_present() {
-                    let address = pd[pd_idx].address();
+                    let address = PAddr::from(pd[pd_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                     let cur_rights: MapAction = pd[pd_idx].flags().into();
                     if address != pbase + mapped || cur_rights != rights {
                         panic!("Trying to map 2 MiB page but it conflicts with existing mapping");
@@ -479,6 +516,7 @@ impl PageTable {
                     pbase + mapped,
                     PDFlags::P | PDFlags::PS | rights.to_pd_rights(),
                 );
+                pd[pd_idx].0 |= enc_mask;
                 trace!(
                     "Mapped 2 MiB region {:#x} -- {:#x} -> {:#x} -- {:#x}",
                     vbase + mapped,
@@ -529,13 +567,16 @@ impl PageTable {
         let pt = self.get_pt_mut(pd_entry);
         let mut pt_idx = pt_index(vbase);
 
+        let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        let enc_mask = (sev_enabled as u64) << CBITPOS;
+
         // To track how much space we've mapped so far
         let mut mapped: usize = 0;
         while mapped < psize && pt_idx < pt.len() {
             if !insert_mapping {
                 // Check if we could map in theory (no overlap)
                 if pt[pt_idx].is_present() {
-                    let address = pt[pt_idx].address();
+                    let address = PAddr::from(pt[pt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                     let cur_rights: MapAction = pt[pt_idx].flags().into();
                     if address != pbase + mapped || cur_rights != rights {
                         // Return an error if a frame is present,
@@ -548,7 +589,7 @@ impl PageTable {
                 }
             } else {
                 if pt[pt_idx].is_present() {
-                    let address = pt[pt_idx].address();
+                    let address = PAddr::from(pt[pt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                     let cur_rights: MapAction = pt[pt_idx].flags().into();
                     if address != pbase + mapped || cur_rights != rights {
                         panic!(
@@ -559,6 +600,7 @@ impl PageTable {
                 }
 
                 pt[pt_idx] = PTEntry::new(pbase + mapped, PTFlags::P | rights.to_pt_rights());
+                pt[pt_idx].0 |= enc_mask;
             }
 
             mapped += BASE_PAGE_SIZE;
@@ -614,6 +656,9 @@ impl PageTable {
         assert!(vbase.is_base_page_aligned());
         assert_eq!(psize % BASE_PAGE_SIZE, 0);
 
+        let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        let enc_mask = (sev_enabled as u64) << CBITPOS;
+
         debug!(
             "map_generic {:#x} -- {:#x} -> {:#x} -- {:#x} {}",
             vbase,
@@ -629,7 +674,11 @@ impl PageTable {
         let pdpt_entry = pdpt[pdpt_idx];
         drop(pdpt);
 
-        let pml4_entry = self.pml4[pml4_idx];
+        let pml4_table = unsafe {
+            let vaddr = VAddr::from(transmute::<&PML4, VAddr>(&self.pml4).0 & MEM_ENCRYPT_MASK);
+            transmute::<VAddr, &PML4>(vaddr)
+        };
+        let pml4_entry = pml4_table[pml4_idx];
         if self.can_map_as_huge_page(pml4_entry, pbase, psize, vbase, rights) {
             // Start inserting mappings here in case we can map something as 1 GiB pages
             return self.insert_huge_mappings(
@@ -649,6 +698,7 @@ impl PageTable {
             let pd = self.new_pd();
             let pdpt = self.get_pdpt_mut(pml4_entry);
             pdpt[pdpt_idx] = pd;
+            pdpt[pdpt_idx].0 |= enc_mask;
         }
 
         let pdpt = self.get_pdpt(pml4_entry);
@@ -696,6 +746,7 @@ impl PageTable {
             let pt = self.new_pt();
             let pd = self.get_pd_mut(pdpt_entry);
             pd[pd_idx] = pt;
+            pd[pd_idx].0 |= enc_mask;
         }
 
         let pd = self.get_pd_mut(pdpt_entry);
@@ -735,14 +786,22 @@ impl PageTable {
         action: Modify,
     ) -> Result<(VAddr, PAddr, usize, MapAction), KError> {
         let pml4_idx = pml4_index(addr);
-        if self.pml4[pml4_idx].is_present() {
+        let pml4_table = unsafe {
+            let vaddr = VAddr::from(transmute::<&PML4, VAddr>(&self.pml4).0 & MEM_ENCRYPT_MASK);
+            transmute::<VAddr, &PML4>(vaddr)
+        };
+
+        let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        let enc_mask = (sev_enabled as u64) << CBITPOS;
+
+        if pml4_table[pml4_idx].is_present() {
             let pdpt_idx = pdpt_index(addr);
-            let pdpt = self.get_pdpt_mut(self.pml4[pml4_idx]);
+            let mut pdpt = self.get_pdpt_mut(pml4_table[pml4_idx]);
             if pdpt[pdpt_idx].is_present() {
                 if pdpt[pdpt_idx].is_page() {
                     // Page is a 1 GiB mapping, we have to return here
                     let vaddr_start = addr.align_down_to_huge_page();
-                    let paddr_start = pdpt[pdpt_idx].address();
+                    let paddr_start = PAddr::from(pdpt[pdpt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                     let old_flags: MapAction = pdpt[pdpt_idx].flags().into();
                     match action {
                         Modify::Unmap => {
@@ -751,6 +810,7 @@ impl PageTable {
                         Modify::UpdateRights(new_rights) => {
                             let flags = PDPTFlags::P | PDPTFlags::PS | new_rights.to_pdpt_rights();
                             pdpt[pdpt_idx] = PDPTEntry::new(paddr_start, flags);
+                            pdpt[pdpt_idx].0 |= enc_mask;
                         }
                     };
                     return Ok((vaddr_start, paddr_start, HUGE_PAGE_SIZE, old_flags));
@@ -763,7 +823,7 @@ impl PageTable {
                         if pd[pd_idx].is_page() {
                             // Encountered a 2 MiB mapping, we have to return here
                             let vaddr_start = addr.align_down_to_large_page();
-                            let paddr_start = pd[pd_idx].address();
+                            let paddr_start = PAddr::from(pd[pd_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                             let old_flags: MapAction = pd[pd_idx].flags().into();
                             match action {
                                 Modify::Unmap => {
@@ -773,6 +833,7 @@ impl PageTable {
                                     let flags =
                                         PDFlags::P | PDFlags::PS | new_rights.to_pd_rights();
                                     pd[pd_idx] = PDEntry::new(paddr_start, flags);
+                                    pd[pd_idx].0 |= enc_mask;
                                 }
                             };
                             return Ok((vaddr_start, paddr_start, LARGE_PAGE_SIZE, old_flags));
@@ -784,7 +845,7 @@ impl PageTable {
                             if pt[pt_idx].is_present() {
                                 // Encountered a 2 MiB mapping, we have to return here
                                 let vaddr_start = addr.align_down_to_base_page();
-                                let paddr_start = pt[pt_idx].address();
+                                let paddr_start = PAddr::from(pt[pt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
                                 let old_flags: MapAction = pt[pt_idx].flags().into();
                                 match action {
                                     Modify::Unmap => {
@@ -793,6 +854,7 @@ impl PageTable {
                                     Modify::UpdateRights(new_rights) => {
                                         let flags = PTFlags::P | new_rights.to_pt_rights();
                                         pt[pt_idx] = PTEntry::new(paddr_start, flags);
+                                        pt[pt_idx].0 |= enc_mask;
                                     }
                                 };
                                 return Ok((vaddr_start, paddr_start, BASE_PAGE_SIZE, old_flags));
@@ -844,37 +906,43 @@ impl PageTable {
 
     /// Resolve a PDEntry to a page table.
     fn get_pt(&self, entry: PDEntry) -> &PT {
-        assert_ne!(entry.address(), PAddr::zero());
-        unsafe { transmute::<VAddr, &mut PT>(paddr_to_kernel_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        assert_ne!(entry.address().0 | !MEM_ENCRYPT_MASK, PAddr::zero().0 | !MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PT>(paddr_to_kernel_vaddr(paddr)) }
     }
 
     /// Resolve a PDPTEntry to a page directory.
     fn get_pd(&self, entry: PDPTEntry) -> &PD {
-        assert_ne!(entry.address(), PAddr::zero());
-        unsafe { transmute::<VAddr, &mut PD>(paddr_to_kernel_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        assert_ne!(entry.address().0 | !MEM_ENCRYPT_MASK, PAddr::zero().0 | !MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PD>(paddr_to_kernel_vaddr(paddr)) }
     }
 
     /// Resolve a PML4Entry to a PDPT.
     fn get_pdpt(&self, entry: PML4Entry) -> &PDPT {
-        assert_ne!(entry.address(), PAddr::zero());
-        unsafe { transmute::<VAddr, &mut PDPT>(paddr_to_kernel_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        assert_ne!(entry.address().0 | !MEM_ENCRYPT_MASK, PAddr::zero().0 | !MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PDPT>(paddr_to_kernel_vaddr(paddr)) }
     }
 
     /// Resolve a PDEntry to a page table.
     fn get_pt_mut(&mut self, entry: PDEntry) -> &mut PT {
-        assert_ne!(entry.address(), PAddr::zero());
-        unsafe { transmute::<VAddr, &mut PT>(paddr_to_kernel_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        assert_ne!(entry.address().0 | !MEM_ENCRYPT_MASK, PAddr::zero().0 | !MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PT>(paddr_to_kernel_vaddr(paddr)) }
     }
 
     /// Resolve a PDPTEntry to a page directory.
     fn get_pd_mut(&mut self, entry: PDPTEntry) -> &mut PD {
-        assert_ne!(entry.address(), PAddr::zero());
-        unsafe { transmute::<VAddr, &mut PD>(paddr_to_kernel_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        assert_ne!(entry.address().0 | !MEM_ENCRYPT_MASK, PAddr::zero().0 | !MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PD>(paddr_to_kernel_vaddr(paddr)) }
     }
 
     /// Resolve a PML4Entry to a PDPT.
     fn get_pdpt_mut(&mut self, entry: PML4Entry) -> &mut PDPT {
-        assert_ne!(entry.address(), PAddr::zero());
-        unsafe { transmute::<VAddr, &mut PDPT>(paddr_to_kernel_vaddr(entry.address())) }
+        let paddr = PAddr::from(entry.0 & ADDRESS_MASK & MEM_ENCRYPT_MASK);
+        assert_ne!(entry.address().0 | !MEM_ENCRYPT_MASK, PAddr::zero().0 | !MEM_ENCRYPT_MASK);
+        unsafe { transmute::<VAddr, &mut PDPT>(paddr_to_kernel_vaddr(paddr)) }
     }
 }

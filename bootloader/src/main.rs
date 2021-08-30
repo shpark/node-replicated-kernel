@@ -556,8 +556,10 @@ pub extern "C" fn uefi_start(handle: uefi::Handle, st: SystemTable<Boot>) -> Sta
         // we don't have an IDT setup in the beginning)
         x86::irq::disable();
 
+        let enc_mask = (SEV_ENABLED.load(Ordering::Relaxed) as u64) << CBITPOS;
+
         // Switch to the kernel address space
-        controlregs::cr3_write((kernel.vspace.pml4) as *const _ as u64);
+        controlregs::cr3_write((kernel.vspace.pml4) as *const _ as u64 | enc_mask);
 
         // Finally switch to the kernel stack and entry function
         jump_to_kernel(
