@@ -220,11 +220,11 @@ impl<'a> elfloader::ElfLoader for Kernel<'a> {
         let addr = self.offset.as_u64() + entry.get_offset();
 
         // We can't access addr in UEFI space so we resolve it to a physical address (UEFI has 1:1 mappings)
-        let uefi_addr = self
+        let uefi_addr = (self
             .vspace
             .resolve_addr(VAddr::from(addr))
             .expect("Can't resolve address")
-            .as_u64() as *mut u64;
+            .as_u64() & MEM_ENCRYPT_MASK) as *mut u64;
 
         use elfloader::TypeRela64;
         if let TypeRela64::R_RELATIVE = TypeRela64::from(entry.get_type()) {

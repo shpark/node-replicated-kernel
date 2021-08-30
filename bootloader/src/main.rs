@@ -376,6 +376,16 @@ pub extern "C" fn uefi_start(handle: uefi::Handle, st: SystemTable<Boot>) -> Sta
         )
     };
 
+    // HACK: Detect SEV by looking up the C-bit in the first PML4 entry
+    // that is used by UEFI.
+    // let pml4: PAddr = unsafe { controlregs::cr3() };
+    let pml4 = PAddr::from(unsafe { controlregs::cr3() });
+    let pml4Table = unsafe { transmute::<VAddr, &PML4>(paddr_to_uefi_vaddr(pml4)) };
+    let cbit = (pml4Table[0].0 & (1 << CBITPOS)) >> CBITPOS;
+    if cbit != 0 {
+        SEV_ENABLED.store(true, Ordering::Release); // XXX: Does it have to be atomic?
+    }
+
     // Next create an address space for our kernel
     trace!("Allocate a PML4 (page-table root)");
     let pml4: PAddr = VSpace::allocate_one_page();
@@ -402,16 +412,6 @@ pub extern "C" fn uefi_start(handle: uefi::Handle, st: SystemTable<Boot>) -> Sta
     let stack_size: usize = (stack_pages - 1) * BASE_PAGE_SIZE;
     let stack_top: PAddr = stack_base + stack_size as u64;
     assert_eq!(stack_protector + BASE_PAGE_SIZE, stack_base);
-
-    // HACK: Detect SEV by looking up the C-bit in the first PML4 entry
-    // that is used by UEFI.
-    // let pml4: PAddr = unsafe { controlregs::cr3() };
-    let pml4 = PAddr::from(unsafe { controlregs::cr3() });
-    let pml4Table = unsafe { transmute::<VAddr, &PML4>(paddr_to_uefi_vaddr(pml4)) };
-    let cbit = (pml4Table[0].0 & (1 << CBITPOS)) >> CBITPOS;
-    if cbit != 0 {
-        SEV_ENABLED.store(true, Ordering::Release); // XXX: Does it have to be atomic?
-    }
 
     kernel.vspace.map_identity_with_offset(
         PAddr::from(KERNEL_OFFSET as u64),
