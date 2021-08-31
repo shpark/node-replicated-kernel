@@ -1065,7 +1065,12 @@ impl Process for Ring3Process {
         // TODO(ugly): Find a better way to express this mess
         super::kcb::try_get_kcb().map(|kcb: &mut Kcb<Arch86Kcb>| {
             for i in 128..=135 {
-                let kernel_pml_entry = kcb.arch.init_vspace().pml4[i];
+                // TODO(ugly): Should I always perform transmutes for pml4? 
+                let pml4_table = unsafe {
+                    let vaddr = core::mem::transmute::<&PML4, u64>(&kcb.arch.init_vspace().pml4);
+                    core::mem::transmute::<u64, &PML4>(vaddr & crate::arch::MEM_ENCRYPT_MASK)
+                };
+                let kernel_pml_entry = pml4_table[i];
                 trace!("Patched in kernel mappings at {:?}", kernel_pml_entry);
                 self.vspace.page_table.pml4[i] = kernel_pml_entry;
             }
