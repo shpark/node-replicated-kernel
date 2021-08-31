@@ -16,6 +16,7 @@ use super::page_table::PageTable;
 use crate::arch::memory::{paddr_to_kernel_vaddr, PAddr, VAddr};
 use crate::error::KError;
 use crate::graphviz as dot;
+use crate::arch::MEM_ENCRYPT_MASK;
 
 impl PageTable {
     const INITIAL_EDGES_CAPACITY: usize = 128;
@@ -113,7 +114,7 @@ impl PageTable {
 #[allow(unused)]
 pub unsafe fn dump_current_table(log_level: usize) {
     let cr_three: u64 = controlregs::cr3();
-    let pml4: PAddr = PAddr::from(cr_three);
+    let pml4: PAddr = PAddr::from(cr_three & MEM_ENCRYPT_MASK);
     let pml4_table = transmute::<VAddr, &PML4>(paddr_to_kernel_vaddr(pml4));
 
     dump_table(pml4_table, log_level);
@@ -126,7 +127,7 @@ pub unsafe fn dump_table(pml4_table: &PML4, log_level: usize) {
             info!("PML4 item#{}: maps to {:?}", pml_idx, pml_item);
 
             let pdpt_table =
-                transmute::<VAddr, &mut PDPT>(VAddr::from_u64(pml_item.address().as_u64()));
+                transmute::<VAddr, &mut PDPT>(VAddr::from_u64(pml_item.address().as_u64() & MEM_ENCRYPT_MASK));
             if log_level <= 1 {
                 continue;
             }
@@ -136,7 +137,7 @@ pub unsafe fn dump_table(pml4_table: &PML4, log_level: usize) {
 
                 if pdpt_item.is_present() {
                     let pd_table =
-                        transmute::<VAddr, &mut PD>(VAddr::from_u64(pdpt_item.address().as_u64()));
+                        transmute::<VAddr, &mut PD>(VAddr::from_u64(pdpt_item.address().as_u64() & MEM_ENCRYPT_MASK));
                     if pdpt_item.is_page() {
                         let vaddr: usize = (512 * (512 * (512 * 0x1000))) * pml_idx
                             + (512 * (512 * 0x1000)) * pdpt_idx;
@@ -148,7 +149,7 @@ pub unsafe fn dump_table(pml4_table: &PML4, log_level: usize) {
 
                             if pd_item.is_present() {
                                 let ptes = transmute::<VAddr, &mut PT>(VAddr::from_u64(
-                                    pd_item.address().as_u64(),
+                                    pd_item.address().as_u64() & MEM_ENCRYPT_MASK,
                                 ));
 
                                 if pd_item.is_page() {
