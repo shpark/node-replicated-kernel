@@ -142,7 +142,7 @@ impl AddressSpace for PageTable {
                 if pdpt[pdpt_idx].is_page() {
                     // Page is a 1 GiB mapping, we have to return here
                     let page_offset = addr.huge_page_offset();
-                    let paddr = PAddr::from(pdpt[pdpt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK + page_offset);
+                    let paddr = PAddr::from((pdpt[pdpt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK) + page_offset);
                     let flags: MapAction = pdpt[pdpt_idx].flags().into();
                     return Ok((paddr, flags));
                 } else {
@@ -152,7 +152,7 @@ impl AddressSpace for PageTable {
                         if pd[pd_idx].is_page() {
                             // Encountered a 2 MiB mapping, we have to return here
                             let page_offset = addr.large_page_offset();
-                            let paddr = PAddr::from(pd[pd_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK + page_offset);
+                            let paddr = PAddr::from((pd[pd_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK) + page_offset);
                             let flags: MapAction = pd[pd_idx].flags().into();
                             return Ok((paddr, flags));
                         } else {
@@ -160,7 +160,7 @@ impl AddressSpace for PageTable {
                             let pt = self.get_pt(pd[pd_idx]);
                             if pt[pt_idx].is_present() {
                                 let page_offset = addr.base_page_offset();
-                                let paddr = PAddr::from(pt[pt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK + page_offset);
+                                let paddr = PAddr::from((pt[pt_idx].0 & ADDRESS_MASK & MEM_ENCRYPT_MASK) + page_offset);
                                 let flags: MapAction = pt[pt_idx].flags().into();
                                 return Ok((paddr, flags));
                             }
