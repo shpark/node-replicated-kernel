@@ -194,11 +194,14 @@ pub fn xmain() {
     // ... with 512 MiB of RAM per NUMA node ...
     for (nid, node) in MACHINE_TOPOLOGY.nodes().enumerate() {
         match nid {
-            0 => assert_eq!(node.memory().count(), 2),
-            _ => assert_eq!(node.memory().count(), 1),
+            0 => assert_eq!(node.memory().filter(|ma| !ma.is_non_volatile() & !ma.is_hotplug_region()).count(), 2),
+            _ => assert_eq!(node.memory().filter(|ma| !ma.is_non_volatile() & !ma.is_hotplug_region()).count(), 1),
         };
 
-        let bytes_per_node: u64 = node.memory().map(|ma| ma.length).sum();
+        let bytes_per_node: u64 = node
+            .memory()
+            .map(|ma| if !ma.is_non_volatile() & !ma.is_hotplug_region() { ma.length } else { 0 })
+            .sum();
 
         if nid > 0 {
             assert_eq!(
@@ -394,6 +397,39 @@ pub fn xmain() {
         // Don't change this string otherwise the test will fail:
         info!("Core has started");
     }
+
+    arch::debug::shutdown(ExitReason::Ok);
+}
+
+/// Checks that we can discover NVDIMMs, query the ACPI NFIT tables,
+/// and parse the topology.
+#[cfg(all(feature = "integration-test", feature = "test-nvdimm-discover"))]
+pub fn xmain() {
+    use atopology::MemoryType::PERSISTENT_MEMORY;
+    use atopology::MACHINE_TOPOLOGY;
+    use log::info;
+
+    let page_size: usize = x86::bits64::paging::BASE_PAGE_SIZE;
+    let per_socket_pmem: usize = 512 * 1024 * 1024;
+
+    let pmems = MACHINE_TOPOLOGY.persistent_memory();
+    let nodes = MACHINE_TOPOLOGY.num_nodes();
+
+    // We have two numa nodes
+    assert_eq!(nodes, 2);
+
+    // We have two PMEM regions.
+    assert_eq!(pmems.size_hint().0, 2);
+
+    for pmem in pmems {
+        // Each region of the Persistent Memory type.
+        assert_eq!(pmem.ty, PERSISTENT_MEMORY);
+
+        // Number of pages on each socket
+        assert_eq!(pmem.page_count as usize, per_socket_pmem / page_size);
+    }
+
+    info!("NVDIMMs Discovered");
 
     arch::debug::shutdown(ExitReason::Ok);
 }

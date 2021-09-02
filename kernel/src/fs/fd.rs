@@ -29,10 +29,13 @@ impl FileDesc {
 
     pub fn deallocate_fd(&mut self, fd: usize) -> Result<usize, KError> {
         match self.fds.get_mut(fd) {
-            Some(fdinfo) => {
-                *fdinfo = None;
-                Ok(fd)
-            }
+            Some(fdinfo) => match fdinfo {
+                Some(_info) => {
+                    *fdinfo = None;
+                    Ok(fd)
+                }
+                None => Err(KError::InvalidFileDescriptor),
+            },
             None => Err(KError::InvalidFileDescriptor),
         }
     }

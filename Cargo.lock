@@ -13,11 +13,11 @@ dependencies = [
 
 [[package]]
 name = "addr2line"
-version = "0.15.2"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7a2e47a1fbe209ee101dd6d61285226744c6c8d3c21c8dc878ba6cb9f467f3a"
+checksum = "3e61f2b7f93d2c7d2b08263acaa4a363b3e276806c68af6134c44f523bf1aacd"
 dependencies = [
- "gimli 0.24.0",
+ "gimli 0.25.0",
  "rustc-demangle",
 ]
 
@@ -71,7 +71,7 @@ dependencies = [
  "driverkit",
  "env_logger 0.5.13",
  "log",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -115,17 +115,19 @@ dependencies = [
 
 [[package]]
 name = "atopology"
-version = "0.0.17"
+version = "0.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "066352905145f3e426556fc8ec16e781296427436573123f3f488ca9b9372adb"
+checksum = "5da93346525be1de90c93873b398f0071b9d3720e96c7a9072cc17d6f0d568db"
 dependencies = [
+ "bitflags",
  "cstr_core",
- "env_logger 0.8.3",
+ "env_logger 0.9.0",
  "lazy_static",
  "libacpica",
  "log",
  "procfs",
- "x86 0.40.0",
+ "static_assertions",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -167,13 +169,13 @@ dependencies = [
 
 [[package]]
 name = "backtracer_core"
-version = "0.0.3"
+version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64a08cfe3c738d333f57a9e75122169d7e076f57d00ba495e9896c08e2883947"
+checksum = "cf9dbec16738b72257605568a78ee718f94f6df6afb173d0eab400c39a7ec9a1"
 dependencies = [
- "addr2line 0.15.2",
+ "addr2line 0.16.0",
  "cfg-if 0.1.10",
- "gimli 0.24.0",
+ "gimli 0.25.0",
  "log",
  "stable_deref_trait",
  "x86 0.37.0",
@@ -222,7 +224,7 @@ dependencies = [
  "log",
  "uefi",
  "uefi-services",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -231,7 +233,7 @@ version = "0.0.1"
 dependencies = [
  "arrayvec",
  "uefi",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -428,9 +430,9 @@ checksum = "4f8a51dd197fa6ba5b4dc98a990a43cc13693c23eb0089ebb0fcc1f04152bca6"
 
 [[package]]
 name = "driverkit"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b2c8fe882f6bddfe743cd9a5d1c35f5db8a1f2a6dc146ae79d8428213ac305"
+checksum = "86ea6848d8843cf8fda500e5bb03cf1486e63a34b753697783bd00396aac6c9a"
 dependencies = [
  "byteorder",
  "custom_error",
@@ -438,7 +440,7 @@ dependencies = [
  "log",
  "matches",
  "mmap",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -632,9 +634,9 @@ checksum = "f6503fe142514ca4799d4c26297c4248239fe8838d827db6bd6065c6ed29a6ce"
 
 [[package]]
 name = "gimli"
-version = "0.24.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e4075386626662786ddb0ec9081e7c7eeb1ba31951f447ca780ef9f5d568189"
+checksum = "f0a01e0497841a3b2db4f8afa483cce65f7e96a3498bd6c541734792aeac8fe7"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -752,15 +754,18 @@ dependencies = [
 name = "init"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "cstr_core",
+ "hashbrown 0.11.2",
  "lazy_static",
  "libm",
  "lineup",
  "log",
+ "proptest",
  "rawtime",
  "spin 0.5.2",
  "vibrio",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -797,12 +802,12 @@ name = "kpi"
 version = "0.1.0"
 dependencies = [
  "bitflags",
- "env_logger 0.8.3",
+ "env_logger 0.9.0",
  "log",
  "serde",
  "serde_cbor",
  "static_assertions",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -816,9 +821,9 @@ dependencies = [
 
 [[package]]
 name = "libacpica"
-version = "0.0.6"
+version = "0.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acb9076ee2e41473790e81242432ea5d816043a5f2f70f3c5201053d66686c1e"
+checksum = "750696106cf168dfc2a71dacb3a2e5224612425f04fd6772b482804e4e6b55b8"
 
 [[package]]
 name = "libc"
@@ -847,14 +852,14 @@ dependencies = [
  "crossbeam-queue",
  "crossbeam-utils 0.8.5",
  "either",
- "env_logger 0.8.3",
+ "env_logger 0.9.0",
  "fringe",
  "hashbrown 0.11.2",
  "kpi",
  "log",
  "rawtime",
  "spin 0.9.1",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -979,9 +984,9 @@ dependencies = [
 
 [[package]]
 name = "nrk"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
- "addr2line 0.15.2",
+ "addr2line 0.16.0",
  "apic",
  "arrayvec",
  "atopology",
@@ -1023,7 +1028,7 @@ dependencies = [
  "static_assertions",
  "uefi",
  "vmxnet3",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -1180,6 +1185,7 @@ dependencies = [
  "regex-syntax",
  "rusty-fork",
  "tempfile",
+ "x86 0.33.0",
 ]
 
 [[package]]
@@ -1339,9 +1345,29 @@ dependencies = [
 
 [[package]]
 name = "raw-cpuid"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e9c0f2091b865a94bc3c9d34896cc4bbda04453453c391f7eb224491be9ae1d"
+dependencies = [
+ "bitflags",
+ "cc",
+ "rustc_version",
+]
+
+[[package]]
+name = "raw-cpuid"
 version = "9.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c27cb5785b85bd05d4eb171556c9a1a514552e26123aeae6bb7d811353148026"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
+name = "raw-cpuid"
+version = "10.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "929f54e29691d4e6a9cc558479de70db7aa3d98cd6fe7ab86d7507aa2886b9d2"
 dependencies = [
  "bitflags",
 ]
@@ -1443,6 +1469,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "410f7acf3cb3a44527c5d9546bad4bf4e6c460915d5f9f2fc524498bfe8f70ce"
 
 [[package]]
+name = "rustc_version"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
+dependencies = [
+ "semver",
+]
+
+[[package]]
 name = "rusty-fork"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1465,6 +1500,21 @@ name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+
+[[package]]
+name = "semver"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
+dependencies = [
+ "semver-parser",
+]
+
+[[package]]
+name = "semver-parser"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
@@ -1708,7 +1758,7 @@ dependencies = [
  "serde_cbor",
  "slabmalloc",
  "spin 0.5.2",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -1722,7 +1772,7 @@ dependencies = [
  "log",
  "smoltcp",
  "static_assertions",
- "x86 0.40.0",
+ "x86 0.41.0",
 ]
 
 [[package]]
@@ -1797,24 +1847,35 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "x86"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2786ac694ed572ab5d2bbcd9e188805dba26b3501973dd69718914fb3d4a5a69"
+dependencies = [
+ "bit_field",
+ "bitflags",
+ "raw-cpuid 8.0.0",
+]
+
+[[package]]
+name = "x86"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4fd9298cd1b1f88546fc0a5e8faa3354013cd010589299c624fde436aad76cc"
 dependencies = [
  "bit_field",
  "bitflags",
- "raw-cpuid",
+ "raw-cpuid 9.0.0",
 ]
 
 [[package]]
 name = "x86"
-version = "0.40.0"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "702d51a8a099ea6b47826796377591d2ed47116c7f0454f0d08d1d9872944880"
+checksum = "edcf43654d533a571fe7f7116373098a95ebc01279efdc5038fc45d3b220cb5a"
 dependencies = [
  "bit_field",
  "bitflags",
- "raw-cpuid",
+ "raw-cpuid 10.2.0",
 ]
 
 [[package]]

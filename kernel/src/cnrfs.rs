@@ -475,7 +475,11 @@ impl Dispatch for MlnrKernelNode {
                 if let Some(mnode) = mnode {
                     // File exists and FileOpen is called with O_TRUNC flag.
                     if flags.is_truncate() {
-                        assert!(self.fs.truncate(&filename).is_ok());
+                        if let Err(e) = self.fs.truncate(&filename) {
+                            let fdesc = fid as usize;
+                            pmap.get_mut(&pid).unwrap().deallocate_fd(fdesc)?;
+                            return Err(e);
+                        }
                     }
                     mnode_num = *mnode;
                 } else {

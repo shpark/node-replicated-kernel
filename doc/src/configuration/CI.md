@@ -80,25 +80,7 @@ source $HOME/.cargo/env
 
 ## Install a recent qemu
 
-Make sure the QEMU version for the runner account is is >= 5:
-
-```bash
-cd $HOME
-sudo apt update
-sudo apt install build-essential
-sudo apt build-dep qemu
-
-wget https://download.qemu.org/qemu-5.0.0.tar.xz
-tar xvJf qemu-5.0.0.tar.xz
-
-cd qemu-5.0.0
-./configure --enable-rdma
-make -j 28
-sudo make -j28 install
-
-# Check version (should be 5.0.0)
-qemu-system-x86_64 --version
-```
+[Follow the steps in the Development chapter.](../development/Building.html#install-qemu-from-sources)
 
 ## Install memaslap
 
@@ -160,7 +142,28 @@ source $HOME/.cargo/env
 ./run.sh
 ```
 
-TBD: Run/configure it as a systemd service.
+## Start runner as systemd service
+
+```bash
+cd $HOME/actions-runner
+sudo ./svc.sh install
+sudo ./svc.sh start
+```
+
+Check the runner status with:
+```bash
+sudo ./svc.sh status
+```
+
+Stop the runner with:
+```bash
+sudo ./svc.sh stop
+```
+
+Uninstall the service with:
+```bash
+sudo ./svc.sh uninstall
+```
 
 ## Repository settings
 
