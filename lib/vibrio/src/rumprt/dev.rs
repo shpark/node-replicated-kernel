@@ -248,6 +248,7 @@ pub unsafe extern "C" fn rumpcomp_pci_dmalloc(
 
     let layout = Layout::from_size_align_unchecked(size, size);
 
+    // TODO(sev): Let syscalls::VSpace::map in Pager::allocate not set the C-bit.
     let r = {
         let mut p = crate::mem::PAGER[Environment::core_id()].lock();
         (*p).allocate(layout)
