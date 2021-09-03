@@ -208,6 +208,17 @@ impl elfloader::ElfLoader for DataSecAllocator {
 
                     self.frames
                         .push((page_base.as_usize() + i * LARGE_PAGE_SIZE, frame));
+
+                    // Make sure that the allocated frames are filled with zeros.
+                    // This is crucial when AMD SEV is enabled. The user processes will have
+                    // C-bits set in their page tables entries. If this phase is skipped,
+                    // then the physical memory will store plaintext zeros, and the user process,
+                    // which decrypts the physical memory before loading them into cache, will see
+                    // garbage values.
+                    unsafe {
+                        let base = paddr_to_kernel_vaddr(frame.base);
+                        core::ptr::write_bytes::<u8>(base.as_mut_ptr(), 0, LARGE_PAGE_SIZE);
+                    }
                 }
             }
         }
