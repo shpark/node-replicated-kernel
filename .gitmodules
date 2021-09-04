@@ -2,6 +2,3 @@
 	path = lib/node-replication
 	url = git@github.com:vmware/node-replication.git
 	branch = mut_scan_vec
-[submodule "bootloader/edk2"]
-	path = bootloader/edk2
-	url = git@github.com:shpark/edk2
