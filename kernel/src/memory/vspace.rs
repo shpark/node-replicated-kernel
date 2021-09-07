@@ -174,8 +174,11 @@ pub trait AddressSpace {
     /// invoked to flush the TLB.
     fn unmap(&mut self, vaddr: VAddr) -> Result<TlbFlushHandle, KError>;
 
-    // Returns an iterator of all currently mapped memory regions.
-    //fn mappings()
+    // TODO(sev): Encrypts the frame associated with `vaddr`.
+    // fn encrypt(&mut self, vaddr: VAddr) -> Result<(), KError>;
+
+    // TODO(sev): Decrypt the frame associated with `vaddr`.
+    // fn declassify(&mut self, vaddr: VAddr) -> Result<(), KError>;
 }
 
 /// Mapping rights to give to address translation.

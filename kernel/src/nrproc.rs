@@ -338,7 +338,7 @@ where
                 Ok(NodeResult::Mapped)
             }
 
-            // TODO(sev): map_frame should not set C-bit for mappings to MMIO regions.
+            // TODO(sev): Any pages corresponding to MMIO address must be configured with the C-bit clear.
             // Can be MapFrame with base supplied ...
             Op::MemMapDevice(frame, action) => {
                 let base = VAddr::from(frame.base.as_u64());
