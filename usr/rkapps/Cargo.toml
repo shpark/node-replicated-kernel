@@ -7,7 +7,7 @@ build = "build.rs"
 links = "rumpkernel"
 
 [dependencies]
-rumpkernel = "0.0.4"
+rumpkernel = { git = "https://github.com/shpark/rust-rumpkernel" }
 vibrio = { path = "../../lib/vibrio", features = ["rumprt"] }
 
 [build-dependencies]
