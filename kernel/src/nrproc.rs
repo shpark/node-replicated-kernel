@@ -338,11 +338,13 @@ where
                 Ok(NodeResult::Mapped)
             }
 
-            // TODO(sev): Any pages corresponding to MMIO address must be configured with the C-bit clear.
+            // Any pages corresponding to MMIO address must be configured with the C-bit clear.
             // Can be MapFrame with base supplied ...
             Op::MemMapDevice(frame, action) => {
                 let base = VAddr::from(frame.base.as_u64());
-                self.process.vspace_mut().map_frame(base, frame, action)?;
+                let vspace = self.process.vspace_mut();
+                vspace.map_frame(base, frame, action)?;
+                vspace.declassify(base, 1)?;
                 Ok(NodeResult::Mapped)
             }
 
