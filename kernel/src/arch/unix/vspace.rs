@@ -74,6 +74,10 @@ impl AddressSpace for VSpace {
     fn unmap(&mut self, _vaddr: VAddr) -> Result<TlbFlushHandle, KError> {
         unimplemented!("unmap");
     }
+
+    fn declassify(&mut self, _vaddr: VAddr, _nframes: usize) -> Result<(), KError> {
+        unimplemented!("declassify");
+    }
 }
 
 impl Drop for VSpace {

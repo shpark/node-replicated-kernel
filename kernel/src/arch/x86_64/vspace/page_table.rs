@@ -182,6 +182,54 @@ impl AddressSpace for PageTable {
         // TODO(correctness+memory): we lose topology information here...
         Ok(TlbFlushHandle::new(vaddr, Frame::new(paddr, size, 0)))
     }
+
+    // TODO(correctness): If the size of mapping (i.e. huge/large page) is larger than 4KiB * `nframes`,
+    // split the mapping.
+    // TODO(feature): Flush cache lines when needed.
+    fn declassify(&mut self, addr: VAddr, _nframes: usize) -> Result<(), KError> {
+        let pml4_idx = pml4_index(addr);
+        let pml4_table = unsafe {
+            let vaddr = VAddr::from(transmute::<&PML4, VAddr>(&self.pml4).0 & MEM_ENCRYPT_MASK);
+            transmute::<VAddr, &PML4>(vaddr)
+        };
+
+        if pml4_table[pml4_idx].is_present() {
+            let pdpt_idx = pdpt_index(addr);
+            let pdpt = self.get_pdpt_mut(pml4_table[pml4_idx]);
+            if pdpt[pdpt_idx].is_present() {
+                if pdpt[pdpt_idx].is_page() {
+                    // Page is a 1 GiB mapping, we have to return here
+                    // TODO(correctness): Handle huge pages.
+                    return Err(KError::NotSupported)
+                } else {
+                    let pd_idx = pd_index(addr);
+                    let pdpt_entry = pdpt[pdpt_idx];
+                    drop(pdpt);
+                    let pd = self.get_pd_mut(pdpt_entry);
+                    if pd[pd_idx].is_present() {
+                        if pd[pd_idx].is_page() {
+                            // Encountered a 2 MiB mapping, we have to return here
+                            // TODO(correctness): Handle large pages.
+                            return Err(KError::NotSupported)
+                        } else {
+                            let pt_idx = pt_index(addr);
+                            let pd_entry = pd[pd_idx];
+                            drop(pd);
+                            let pt = self.get_pt_mut(pd_entry);
+                            if pt[pt_idx].is_present() {
+                                pt[pt_idx].0 &= MEM_ENCRYPT_MASK;
+                                // TODO(correctness): TLB flush
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // else:
+        Err(KError::NotMapped)
+    }
 }
 
 impl PageTable {

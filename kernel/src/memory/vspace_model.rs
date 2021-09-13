@@ -185,6 +185,10 @@ impl AddressSpace for ModelAddressSpace {
             Err(KError::NotMapped)
         }
     }
+
+    fn declassify(&mut self, _vaddr: VAddr, _nframes: usize) -> Result<(), KError> {
+        unimplemented!("declassify");
+    }
 }
 
 /// A simple test to see if our model is doing what it's supposed to do.

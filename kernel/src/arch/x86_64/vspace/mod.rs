@@ -102,6 +102,10 @@ impl AddressSpace for VSpace {
         mapping.rights = new_rights;
         Ok(r)
     }
+
+    fn declassify(&mut self, vaddr: VAddr, npages: usize) -> Result<(), KError> {
+        self.page_table.declassify(vaddr, npages)
+    }
 }
 
 impl Drop for VSpace {

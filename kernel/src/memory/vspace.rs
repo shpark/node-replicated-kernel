@@ -177,8 +177,8 @@ pub trait AddressSpace {
     // TODO(sev): Encrypts the frame associated with `vaddr`.
     // fn encrypt(&mut self, vaddr: VAddr) -> Result<(), KError>;
 
-    // TODO(sev): Decrypt the frame associated with `vaddr`.
-    // fn declassify(&mut self, vaddr: VAddr) -> Result<(), KError>;
+    /// TODO(sev): Decrypt the frame associated with `vaddr`.
+    fn declassify(&mut self, vaddr: VAddr, nframes: usize) -> Result<(), KError>;
 }
 
 /// Mapping rights to give to address translation.
