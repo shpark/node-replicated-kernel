@@ -169,9 +169,15 @@ pub unsafe extern "C" fn __libc_start_main() {
 
 pub static READY_TO_RUMBLE: AtomicBool = AtomicBool::new(false);
 
+extern "C" {
+    #[no_mangle]
+    static mut rumpns_SEV_ENABLED: c_int;
+}
+
 extern "C" fn ready() {
     info!("rump_init ready callback");
     READY_TO_RUMBLE.store(true, Ordering::SeqCst);
+    unsafe { rumpns_SEV_ENABLED = 1; }
 }
 
 extern "C" {
