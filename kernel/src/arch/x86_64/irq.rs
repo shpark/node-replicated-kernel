@@ -49,7 +49,7 @@ use klogger::{sprint, sprintln};
 use log::{info, trace, warn};
 
 use crate::kcb::ArchSpecificKcb;
-use crate::memory::vspace::MapAction;
+use crate::memory::vspace::{AddressSpace, MapAction};
 use crate::memory::Frame;
 use crate::panic::{backtrace, backtrace_from};
 use crate::process::{Executor, ResumeHandle};
@@ -710,6 +710,16 @@ pub fn ioapic_initialize() {
                 MapAction::ReadWriteKernel,
             )
             .expect("Can't create APIC mapping?");
+
+        // Any pages corresponding to MMIO address must be configured with
+        // the C-bit clear.
+        //
+        // TODO(ugly): Currently, `vaddr` is computed inside the `map_identity_with_offset`
+        // function. We now re-compute the `vaddr` for `declassify` as below.
+        kcb.arch
+           .init_vspace()
+           .declassify(VAddr::from(vbase.0 + ioapic_frame.base.0), 1)
+           .expect("Can't declassify APIC mapping");
     }
 }
 
