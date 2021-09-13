@@ -323,3 +323,10 @@ pub unsafe extern "C" fn rumpcomp_pci_dmamem_map(
         panic!("nseg > 1")
     }
 }
+
+#[no_mangle]
+pub unsafe extern "C" fn rumpcomp_pci_dmamap_sync(
+    _va: *mut c_void, /* TODO */
+) -> c_int {
+    0
+}
