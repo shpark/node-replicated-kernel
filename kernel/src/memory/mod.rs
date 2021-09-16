@@ -176,6 +176,7 @@ impl KernelAllocator {
                             (f.base, f.size()),
                             MapAction::ReadWriteKernel,
                             true,
+                            false, /* XXX: Not shared. Ok? */
                         )
                         .expect("Can't create the mapping");
 
@@ -195,6 +196,7 @@ impl KernelAllocator {
                             (f.base, f.size()),
                             MapAction::ReadWriteKernel,
                             true,
+                            false, /* XXX: Not shared. Ok? */
                         )
                         .expect("Can't create the mapping");
                     start_at += BASE_PAGE_SIZE as u64;

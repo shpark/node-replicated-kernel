@@ -93,6 +93,81 @@ impl AddressSpace for ModelAddressSpace {
             }
         }
 
+
+        // No conflicts
+        if overlapping_mappings.is_empty() {
+            for (cur_vaddr, cur_paddr, length, rights) in self.oplog.iter_mut() {
+                let cur_range = cur_vaddr.as_usize()..cur_vaddr.as_usize() + *length;
+                let new_range = base.as_usize()..base.as_usize() + frame.size();
+
+                if ModelAddressSpace::overlaps(&cur_range, &new_range) {
+                    if cur_range.start == new_range.start
+                        && cur_range.end <= new_range.end
+                        && *cur_paddr == frame.base
+                        && *rights == action
+                    {
+                        // Promote frame size in the special case where we can just extend
+                        // an existing mapping
+                        *length = frame.size();
+                        return Ok(());
+                    }
+                }
+            }
+        } else {
+            // In case we have a mapping that conflicts return the first (lowest)
+            // VAddr where a conflict happened:
+            overlapping_mappings.sort_unstable();
+            return Err(KError::AlreadyMapped {
+                base: *overlapping_mappings.get(0).unwrap(),
+            });
+        }
+
+        // No conflicts? Then add the new mapping
+        self.oplog.push((base, frame.base, frame.size(), action));
+        Ok(())
+    }
+
+    fn map_frame_shared(&mut self, base: VAddr, frame: Frame, action: MapAction) -> Result<(), KError> {
+        // Don't allow mapping of zero-sized frames
+        if frame.size() == 0 {
+            return Err(KError::InvalidFrame);
+        }
+        if frame.base % frame.size() != 0 {
+            // phys addr should be aligned to page-size
+            return Err(KError::InvalidFrame);
+        }
+        if base % frame.size() != 0 {
+            // virtual addr should be aligned to page-size
+            return Err(KError::InvalidBase);
+        }
+
+        // Is there an existing mapping that conflicts with the new mapping?
+        let mut overlapping_mappings = Vec::with_capacity(1);
+        for (cur_vaddr, cur_paddr, length, rights) in self.oplog.iter_mut() {
+            let cur_range = cur_vaddr.as_usize()..cur_vaddr.as_usize() + *length;
+            let new_range = base.as_usize()..base.as_usize() + frame.size();
+            if ModelAddressSpace::overlaps(&cur_range, &new_range) {
+                if cur_range.start == new_range.start
+                    && cur_range.end <= new_range.end
+                    && *cur_paddr == frame.base
+                    && *rights == action
+                {
+                    // Not really a conflict yet since we might be able to get away with
+                    // just adjusting the mapping. We have to make sure we really
+                    // don't have any conflicts with mappings that come later in the list
+                    // (see also further down)
+                } else {
+                    overlapping_mappings.push(
+                        ModelAddressSpace::intersection(cur_range, new_range)
+                            .unwrap()
+                            .start
+                            .into(),
+                    );
+                }
+            }
+        }
+
+
         // No conflicts
         if overlapping_mappings.is_empty() {
             for (cur_vaddr, cur_paddr, length, rights) in self.oplog.iter_mut() {

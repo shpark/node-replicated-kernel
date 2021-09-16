@@ -44,10 +44,12 @@ pub enum Op {
     DispatcherAllocation(Frame),
 
     MemMapFrame(VAddr, Frame, MapAction),
+    MemMapFrameShared(VAddr, Frame, MapAction),
     MemMapDevice(Frame, MapAction),
     MemMapFrameId(VAddr, FrameId, MapAction),
     MemAdjust,
     MemUnmap(VAddr),
+    Declassify(VAddr, usize),
 }
 
 /// Possible return values from the NrProcess.
@@ -230,6 +232,40 @@ impl<P: Process> NrProcess<P> {
         Ok((base.as_u64(), virtual_offset as u64))
     }
 
+    pub fn map_frames_shared(
+        pid: Pid,
+        base: VAddr,
+        frames: Vec<Frame>,
+        action: MapAction,
+    ) -> Result<(u64, u64), KError> {
+        debug_assert!(pid < MAX_PROCESSES, "Invalid PID");
+
+        let kcb = super::kcb::get_kcb();
+        let node = kcb.arch.node();
+
+        let mut virtual_offset = 0;
+        for frame in frames {
+            let response = PROCESS_TABLE[node][pid].execute_mut(
+                Op::MemMapFrameShared(base + virtual_offset, frame, action),
+                kcb.process_token[pid],
+            );
+            match response {
+                Ok(NodeResult::Mapped) => {}
+                e => unreachable!(
+                    "Got unexpected response MemMapFrame {:?} {:?} {:?} {:?}",
+                    e,
+                    base + virtual_offset,
+                    frame,
+                    action
+                ),
+            }
+
+            virtual_offset += frame.size();
+        }
+
+        Ok((base.as_u64(), virtual_offset as u64))
+    }
+
     pub fn pinfo(pid: Pid) -> Result<ProcessInfo, KError> {
         debug_assert!(pid < MAX_PROCESSES, "Invalid PID");
 
@@ -338,6 +374,12 @@ where
                 Ok(NodeResult::Mapped)
             }
 
+            Op::MemMapFrameShared(base, frame, action) => {
+                crate::memory::KernelAllocator::try_refill_tcache(7, 0)?;
+                self.process.vspace_mut().map_frame_shared(base, frame, action)?;
+                Ok(NodeResult::Mapped)
+            }
+
             // Any pages corresponding to MMIO address must be configured with the C-bit clear.
             // Can be MapFrame with base supplied ...
             Op::MemMapDevice(frame, action) => {
@@ -377,6 +419,10 @@ where
             Op::AllocateFrameToProcess(frame) => {
                 let fid = self.process.add_frame(frame)?;
                 Ok(NodeResult::FrameId(fid))
+            }
+
+            Op::Declassify(_vaddr, _npages) => {
+                unimplemented!("Declassify");
             }
         }
     }

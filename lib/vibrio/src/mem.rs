@@ -84,6 +84,22 @@ impl Pager {
         }
     }
 
+    pub(crate) fn allocate_shared(&mut self, layout: Layout) -> Result<(VAddr, PAddr), SystemCallError> {
+        let size = round_up!(layout.size(), 4096) as u64;
+        self.sbrk = round_up!(self.sbrk as usize, core::cmp::max(layout.align(), 4096)) as u64;
+
+        // Return out-of-memory error if the vaddr goes beyond the permissible limit.
+        if self.sbrk >= self.limit {
+            return Err(SystemCallError::OutOfMemory);
+        }
+
+        unsafe {
+            let r = crate::syscalls::VSpace::map_shared(self.sbrk, size)?;
+            self.sbrk += size;
+            Ok(r)
+        }
+    }
+
     /// Allocates a new ObjectPage from the System.
     fn allocate_page(&mut self) -> Option<&'static mut ObjectPage<'static>> {
         self.alloc_page(Pager::BASE_PAGE_SIZE)

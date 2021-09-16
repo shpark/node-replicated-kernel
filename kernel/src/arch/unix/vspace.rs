@@ -47,6 +47,7 @@ impl VSpace {
         _pregion: (PAddr, usize),
         _rights: MapAction,
         _create_mappings: bool,
+        _shared: bool,
     ) -> Result<(), KError> {
         Ok(())
     }
@@ -54,6 +55,12 @@ impl VSpace {
 
 impl AddressSpace for VSpace {
     fn map_frame(&mut self, base: VAddr, frame: Frame, action: MapAction) -> Result<(), KError> {
+        let ma = MappingInfo::new(frame, action);
+        self.mappings.insert(ma.vrange(base), ma);
+        unimplemented!("map_frame");
+    }
+
+    fn map_frame_shared(&mut self, base: VAddr, frame: Frame, action: MapAction) -> Result<(), KError> {
         let ma = MappingInfo::new(frame, action);
         self.mappings.insert(ma.vrange(base), ma);
         unimplemented!("map_frame");

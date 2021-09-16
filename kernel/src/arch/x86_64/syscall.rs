@@ -311,6 +311,55 @@ fn handle_vspace(arg1: u64, arg2: u64, arg3: u64) -> Result<(u64, u64), KError> 
 
             Ok((paddr.unwrap().as_u64(), total_len as u64))
         },
+        VSpaceOperation::MapShared => unsafe {
+            let (bp, lp) = crate::memory::size_to_pages(region_size as usize);
+            let mut frames = Vec::try_with_capacity(bp + lp)?;
+            crate::memory::KernelAllocator::try_refill_tcache(20 + bp, lp)?;
+
+            // XXX: See the comment in the above Map handler.
+            let mut paddr = None;
+            let mut total_len = 0;
+            {
+                let mut pmanager = kcb.mem_manager();
+
+                for _i in 0..lp {
+                    let mut frame = pmanager
+                        .allocate_large_page()
+                        .expect("We refilled so allocation should work.");
+                    total_len += frame.size;
+                    unsafe { frame.zero() };
+                    frames
+                        .try_push(frame)
+                        .expect("Can't fail see `try_with_capacity`");
+                    if paddr.is_none() {
+                        paddr = Some(frame.base);
+                    }
+                }
+                for _i in 0..bp {
+                    let mut frame = pmanager
+                        .allocate_base_page()
+                        .expect("We refilled so allocation should work.");
+                    total_len += frame.size;
+                    unsafe { frame.zero() };
+                    frames
+                        .try_push(frame)
+                        .expect("Can't fail see `try_with_capacity`");
+                    if paddr.is_none() {
+                        paddr = Some(frame.base);
+                    }
+                }
+            }
+
+            nrproc::NrProcess::<Ring3Process>::map_frames_shared(
+                p.pid,
+                base,
+                frames,
+                MapAction::ReadWriteUser,
+            )
+            .expect("Can't map memory");
+
+            Ok((paddr.unwrap().as_u64(), total_len as u64))
+        },
         VSpaceOperation::MapDevice => unsafe {
             let paddr = PAddr::from(base.as_u64());
             let size = region_size as usize;

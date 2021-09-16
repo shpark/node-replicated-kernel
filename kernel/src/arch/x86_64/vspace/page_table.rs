@@ -111,7 +111,24 @@ impl AddressSpace for PageTable {
             "vaddr should be aligned to page-size"
         );
 
-        self.map_generic(base, (frame.base, frame.size()), action, true)
+        self.map_generic(base, (frame.base, frame.size()), action, true, false /* shared */)
+    }
+
+    fn map_frame_shared(&mut self, base: VAddr, frame: Frame, action: MapAction) -> Result<(), KError> {
+        // These assertion are checked with error returns in `VSpace`
+        debug_assert!(frame.size() > 0);
+        debug_assert_eq!(
+            frame.base % frame.size(),
+            0,
+            "paddr should be aligned to page-size"
+        );
+        debug_assert_eq!(
+            base % frame.size(),
+            0,
+            "vaddr should be aligned to page-size"
+        );
+
+        self.map_generic(base, (frame.base, frame.size()), action, true, true /* shared */)
     }
 
     fn map_memory_requirements(_base: VAddr, _frames: &[Frame]) -> usize {
@@ -275,7 +292,7 @@ impl PageTable {
             pbase + size
         );
 
-        self.map_generic(vbase, (pbase, size), rights, true)
+        self.map_generic(vbase, (pbase, size), rights, true, false /* TODO: shared version? */)
     }
 
     /// Identity maps a given physical memory range [`base`, `base` + `size`]
@@ -321,9 +338,10 @@ impl PageTable {
         psize: usize,
         vbase: VAddr,
         _rights: MapAction,
+        shared: bool,
     ) -> bool {
         let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
-        let enc_mask = (sev_enabled as u64) << CBITPOS;
+        let enc_mask = if shared { 0 } else { (sev_enabled as u64) << CBITPOS };
 
         let pml4_idx = pml4_index(vbase);
         let pdpt_idx = pdpt_index(vbase);
@@ -378,9 +396,10 @@ impl PageTable {
         psize: usize,
         vbase: VAddr,
         _rights: MapAction,
+        shared: bool,
     ) -> bool {
         let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
-        let enc_mask = (sev_enabled as u64) << CBITPOS;
+        let enc_mask = if shared { 0 } else { (sev_enabled as u64) << CBITPOS };
 
         let pml4_idx = pml4_index(vbase);
         let pdpt_idx = pdpt_index(vbase);
@@ -436,9 +455,10 @@ impl PageTable {
         psize: usize,
         rights: MapAction,
         insert_mapping: bool,
+        shared: bool,
     ) -> Result<(), KError> {
         let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
-        let enc_mask = (sev_enabled as u64) << CBITPOS;
+        let enc_mask = if shared { 0 } else { (sev_enabled as u64) << CBITPOS };
 
         let pdpt = self.get_or_alloc_pdpt(vbase);
 
@@ -511,6 +531,7 @@ impl PageTable {
                 ((pbase + mapped), psize - mapped),
                 rights,
                 insert_mapping,
+                shared,
             );
         }
     }
@@ -524,9 +545,10 @@ impl PageTable {
         psize: usize,
         rights: MapAction,
         insert_mapping: bool,
+        shared: bool,
     ) -> Result<(), KError> {
         let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
-        let enc_mask = (sev_enabled as u64) << CBITPOS;
+        let enc_mask = if shared { 0 } else { (sev_enabled as u64) << CBITPOS };
 
         let mut pd_idx = pd_index(vbase);
         let pd = self.get_pd_mut(pdpt_entry);
@@ -598,6 +620,7 @@ impl PageTable {
                 ((pbase + mapped), psize - mapped),
                 rights,
                 insert_mapping,
+                shared,
             );
         }
     }
@@ -611,12 +634,13 @@ impl PageTable {
         psize: usize,
         rights: MapAction,
         insert_mapping: bool,
+        shared: bool,
     ) -> Result<(), KError> {
         let pt = self.get_pt_mut(pd_entry);
         let mut pt_idx = pt_index(vbase);
 
         let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
-        let enc_mask = (sev_enabled as u64) << CBITPOS;
+        let enc_mask = if shared { 0 } else { (sev_enabled as u64) << CBITPOS };
 
         // To track how much space we've mapped so far
         let mut mapped: usize = 0;
@@ -676,6 +700,7 @@ impl PageTable {
                 ((pbase + mapped), psize - mapped),
                 rights,
                 insert_mapping,
+                false, /* TODO */
             );
         }
     }
@@ -698,6 +723,7 @@ impl PageTable {
         pregion: (PAddr, usize),
         rights: MapAction,
         insert_mapping: bool,
+        shared: bool,
     ) -> Result<(), KError> {
         let (pbase, psize) = pregion;
         assert!(pbase.is_base_page_aligned());
@@ -705,7 +731,7 @@ impl PageTable {
         assert_eq!(psize % BASE_PAGE_SIZE, 0);
 
         let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
-        let enc_mask = (sev_enabled as u64) << CBITPOS;
+        let enc_mask = if shared { 0 } else { (sev_enabled as u64) << CBITPOS };
 
         debug!(
             "map_generic {:#x} -- {:#x} -> {:#x} -- {:#x} {}",
@@ -727,7 +753,7 @@ impl PageTable {
             transmute::<VAddr, &PML4>(vaddr)
         };
         let pml4_entry = pml4_table[pml4_idx];
-        if self.can_map_as_huge_page(pml4_entry, pbase, psize, vbase, rights) {
+        if self.can_map_as_huge_page(pml4_entry, pbase, psize, vbase, rights, shared) {
             // Start inserting mappings here in case we can map something as 1 GiB pages
             return self.insert_huge_mappings(
                 pdpt_idx,
@@ -736,6 +762,7 @@ impl PageTable {
                 psize,
                 rights,
                 insert_mapping,
+                shared,
             );
         } else if !pdpt_entry.is_present() {
             trace!(
@@ -776,7 +803,7 @@ impl PageTable {
 
         // In case we can map something at a 2 MiB granularity and
         // we still have at least 2 MiB to map create large-page mappings
-        if self.can_map_as_large_page(pdpt_entry, pbase, psize, vbase, rights) {
+        if self.can_map_as_large_page(pdpt_entry, pbase, psize, vbase, rights, shared) {
             return self.insert_large_mappings(
                 pdpt_entry,
                 vbase,
@@ -784,6 +811,7 @@ impl PageTable {
                 psize,
                 rights,
                 insert_mapping,
+                shared,
             );
         } else if !pd_entry.is_present() {
             trace!(
@@ -815,7 +843,7 @@ impl PageTable {
         let pd_entry = pd[pd_idx];
         drop(pd);
 
-        self.insert_base_mappings(pd_entry, vbase, pbase, psize, rights, insert_mapping)
+        self.insert_base_mappings(pd_entry, vbase, pbase, psize, rights, insert_mapping, shared)
     }
 
     /// Changes a mapping in the PageTable
@@ -840,6 +868,7 @@ impl PageTable {
         };
 
         let sev_enabled = SEV_ENABLED.load(Ordering::Relaxed);
+        // TODO: let enc_mask = if shared { 0 } else { (sev_enabled as u64) << CBITPOS };?
         let enc_mask = (sev_enabled as u64) << CBITPOS;
 
         if pml4_table[pml4_idx].is_present() {

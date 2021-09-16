@@ -150,6 +150,13 @@ pub trait AddressSpace {
     /// something already mapped.
     fn map_frame(&mut self, base: VAddr, frame: Frame, action: MapAction) -> Result<(), KError>;
 
+    /// SEV: Maps the given `frame` at `base` in the address space
+    /// with the access rights defined by `action`, unencrypted.
+    ///
+    /// Will return an error if new mapping overlaps with
+    /// something already mapped.
+    fn map_frame_shared(&mut self, base: VAddr, frame: Frame, action: MapAction) -> Result<(), KError>;
+
     /// Estimates how many base-pages are needed (for page-tables)
     /// to map the given list of frames in the address space starting at `base`.
     ///
@@ -177,8 +184,8 @@ pub trait AddressSpace {
     // TODO(sev): Encrypts the frame associated with `vaddr`.
     // fn encrypt(&mut self, vaddr: VAddr) -> Result<(), KError>;
 
-    /// TODO(sev): Decrypt the frame associated with `vaddr`.
-    fn declassify(&mut self, vaddr: VAddr, nframes: usize) -> Result<(), KError>;
+    /// SEV: Decrypt the frame associated with `vaddr`.
+    fn declassify(&mut self, vaddr: VAddr, npages: usize) -> Result<(), KError>;
 }
 
 /// Mapping rights to give to address translation.

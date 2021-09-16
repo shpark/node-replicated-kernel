@@ -68,6 +68,14 @@ impl VSpace {
         unsafe { VSpace::vspace(VSpaceOperation::Identify, base, 0) }
     }
 
+    /// Back a region of unencrypted memory with DRAM.
+    ///
+    /// # Safety
+    /// Manipulates address space of process.
+    pub unsafe fn map_shared(base: u64, bound: u64) -> Result<(VAddr, PAddr), SystemCallError> {
+        VSpace::vspace(VSpaceOperation::MapShared, base, bound)
+    }
+
     /// Manipulate the virtual address space.
     unsafe fn vspace(
         op: VSpaceOperation,
